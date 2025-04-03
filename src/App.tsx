@@ -24,6 +24,20 @@ const App = () => {
         ws.onopen = () => console.log(`✅ Conectado à sala: ${sala}`);
         ws.onclose = () => console.log(`❌ Desconectado da sala: ${sala}`);
     
+        // 🎤 Captura o áudio do microfone e envia para o WebSocket
+        navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+            const mediaRecorder = new MediaRecorder(stream);
+            mediaRecorder.start(100);
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(event.data);
+                }
+            };
+        }).catch((error) => {
+            console.error("Erro ao acessar o microfone:", error);
+        });
+
         // 🚨 Apenas cria o MediaSource UMA VEZ
         if (!mediaSourceRef.current) {
             const mediaSource = new MediaSource();
@@ -47,36 +61,21 @@ const App = () => {
     
         ws.onmessage = async (event) => {
             if (!isReady || !sourceBufferRef.current || !mediaSourceRef.current) return;
-    
-            // 🚨 Garante que o MediaSource está aberto
+
             if (mediaSourceRef.current.readyState !== "open") {
-                console.warn("MediaSource ainda não está aberto! Esperando...");
+                console.warn("🚨 MediaSource ainda não está aberto! Ignorando buffer.");
                 return;
             }
-
-            if (isReady && sourceBufferRef.current && !sourceBufferRef.current.updating) {
-                const arrayBuffer = await event.data.arrayBuffer();
-                sourceBufferRef.current.appendBuffer(arrayBuffer);
-            }
-    
+        
             const arrayBuffer = await event.data.arrayBuffer();
-    
+        
             if (!sourceBufferRef.current.updating) {
                 try {
                     sourceBufferRef.current.appendBuffer(arrayBuffer);
+                    console.log("✅ Buffer adicionado com sucesso!");
                 } catch (error) {
-                    console.error("Erro ao adicionar buffer:", error);
+                    console.error("❌ Erro ao adicionar buffer:", error);
                 }
-            } else {
-                sourceBufferRef.current.addEventListener(
-                    "updateend",
-                    () => {
-                        if (!sourceBufferRef.current?.updating) {
-                            sourceBufferRef.current.appendBuffer(arrayBuffer);
-                        }
-                    },
-                    { once: true }
-                );
             }
         };
     
@@ -94,6 +93,7 @@ const App = () => {
             <h1>🔊 Audio Chat Bidirecional</h1>
             <p>Sala atual: {sala || "Nenhuma"}</p>
 
+            <button onClick={() => audioRef.current?.play()}>▶️ Forçar Reprodução</button>
             <div>
                 <button onClick={() => setSala("sala1")}>Entrar na Sala 1</button>
                 <button onClick={() => setSala("sala2")}>Entrar na Sala 2</button>
