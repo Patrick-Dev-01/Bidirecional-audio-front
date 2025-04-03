@@ -1,63 +1,84 @@
 import { useEffect, useRef, useState } from "react";
 import Peer from "peerjs";
+import { io, Socket } from "socket.io-client";
 
 export default function AudioChat() {
     const [peerId, setPeerId] = useState<string | null>(null);
-    const [remoteId, setRemoteId] = useState<string>("");
-    const audioRef = useRef<HTMLAudioElement | null>(null);
-    const peerRef = useRef<Peer | null>(null);
-    const callRef = useRef<any>(null);
+    const [sala, setSala] = useState<string>("");
+    const audioRefs = useRef(new Map()); // Armazena referências dos áudios
+    const peersRef = useRef(new Map()); // Armazena conexões Peer
+    const socket = useRef(io("http://localhost:9096"));
+    const peer = useRef(new Peer());
 
     useEffect(() => {
-        const peer = new Peer(); // Cria uma conexão Peer.js
-        peerRef.current = peer;
-
-        peer.on("open", (id) => {
+        peer.current.on("open", (id) => {
             console.log("🆔 Meu Peer ID:", id);
             setPeerId(id);
         });
 
-        peer.on("call", (call) => {
+        peer.current.on("call", (call) => {
             navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
                 call.answer(stream);
                 call.on("stream", (remoteStream) => {
-                    if (audioRef.current) {
-                        audioRef.current.srcObject = remoteStream;
-                        audioRef.current.play();
+                    if (!audioRefs.current.has(call.peer)) {
+                        adicionarAudio(call.peer, remoteStream);
                     }
                 });
             });
         });
 
-        return () => peer.disconnect();
+        socket.current.on("usuarios_na_sala", (usuarios) => {
+            console.log("👥 Outros usuários na sala:", usuarios);
+            usuarios.forEach(chamarPeer);
+        });
+
+        socket.current.on("novo_usuario", (novoPeerId) => {
+            console.log("👤 Novo usuário entrou:", novoPeerId);
+            chamarPeer(novoPeerId);
+        });
+
+        return () => {
+            socket.current.disconnect();
+            peer.current.disconnect();
+        };
     }, []);
 
-    const startCall = () => {
-        if (!remoteId || !peerRef.current) return;
+    const entrarNaSala = () => {
+        if (!sala) return;
+        socket.current.emit("entrar_sala", sala, peerId);
+    };
+
+    const chamarPeer = (id: string) => {
         navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
-            const call = peerRef.current!.call(remoteId, stream);
+            const call = peer.current.call(id, stream);
             call.on("stream", (remoteStream) => {
-                if (audioRef.current) {
-                    audioRef.current.srcObject = remoteStream;
-                    audioRef.current.play();
+                if (!audioRefs.current.has(id)) {
+                    adicionarAudio(id, remoteStream);
                 }
             });
-            callRef.current = call;
+            peersRef.current.set(id, call);
         });
+    };
+
+    const adicionarAudio = (id: string, stream: MediaStream) => {
+        const audio = document.createElement("audio");
+        audio.srcObject = stream;
+        audio.autoplay = true;
+        audio.controls = true;
+        document.body.appendChild(audio);
+        audioRefs.current.set(id, audio);
     };
 
     return (
         <div>
-            <h1>🔊 Audio Chat com Peer.js</h1>
-            <p>Seu Peer ID: {peerId}</p>
+            <h1>🔊 Audio Chat Multijogador</h1>
             <input
                 type="text"
-                placeholder="ID do parceiro"
-                value={remoteId}
-                onChange={(e) => setRemoteId(e.target.value)}
+                placeholder="Nome da Sala"
+                value={sala}
+                onChange={(e) => setSala(e.target.value)}
             />
-            <button onClick={startCall}>📞 Chamar</button>
-            <audio ref={audioRef} controls autoPlay />
+            <button onClick={entrarNaSala}>Entrar na Sala</button>
         </div>
     );
 }
