@@ -1,108 +1,61 @@
-import { useState } from 'react'
-import './App.css'
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import Peer from "peerjs";
 
-const App = () => {
-    const wsRef = useRef<WebSocket | null>(null);
-    const mediaSourceRef = useRef<MediaSource | null>(null);
-    const sourceBufferRef = useRef<SourceBuffer | null>(null);
+export default function AudioChat() {
+    const [peerId, setPeerId] = useState<string | null>(null);
+    const [remoteId, setRemoteId] = useState<string>("");
     const audioRef = useRef<HTMLAudioElement | null>(null);
-    const [isReady, setIsReady] = useState(false);
-    const [sala, setSala] = useState<string | null>(null);
+    const peerRef = useRef<Peer | null>(null);
+    const callRef = useRef<any>(null);
 
     useEffect(() => {
-        if (!sala) return;
+        const peer = new Peer(); // Cria uma conexão Peer.js
+        peerRef.current = peer;
 
-        if (wsRef.current) {
-            // wsRef.current.close();
-            wsRef.current = null;
-        }
-    
-        const ws = new WebSocket(`${import.meta.env.VITE_WS_LINK}` || `ws://localhost:8080?sala=${sala}`);
-        wsRef.current = ws;
-    
-        ws.onopen = () => console.log(`✅ Conectado à sala: ${sala}`);
-        ws.onclose = () => console.log(`❌ Desconectado da sala: ${sala}`);
-    
-        // 🎤 Captura o áudio do microfone e envia para o WebSocket
-        navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
-            const mediaRecorder = new MediaRecorder(stream);
-            mediaRecorder.start(100);
-
-            mediaRecorder.ondataavailable = (event) => {
-                if (ws.readyState === WebSocket.OPEN) {
-                    ws.send(event.data);
-                }
-            };
-        }).catch((error) => {
-            console.error("Erro ao acessar o microfone:", error);
+        peer.on("open", (id) => {
+            console.log("🆔 Meu Peer ID:", id);
+            setPeerId(id);
         });
 
-        // 🚨 Apenas cria o MediaSource UMA VEZ
-        if (!mediaSourceRef.current) {
-            const mediaSource = new MediaSource();
-            mediaSourceRef.current = mediaSource;
-    
-            mediaSource.addEventListener("sourceopen", () => {
-                if (!sourceBufferRef.current) {
-                    try {
-                        sourceBufferRef.current = mediaSource.addSourceBuffer("audio/webm; codecs=opus");
-                        setIsReady(true);
-                    } catch (error) {
-                        console.error("Erro ao criar SourceBuffer:", error);
+        peer.on("call", (call) => {
+            navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+                call.answer(stream);
+                call.on("stream", (remoteStream) => {
+                    if (audioRef.current) {
+                        audioRef.current.srcObject = remoteStream;
+                        audioRef.current.play();
                     }
+                });
+            });
+        });
+
+        return () => peer.disconnect();
+    }, []);
+
+    const startCall = () => {
+        if (!remoteId || !peerRef.current) return;
+        navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+            const call = peerRef.current!.call(remoteId, stream);
+            call.on("stream", (remoteStream) => {
+                if (audioRef.current) {
+                    audioRef.current.srcObject = remoteStream;
+                    audioRef.current.play();
                 }
             });
-    
-            if (audioRef.current) {
-                audioRef.current.src = URL.createObjectURL(mediaSource);
-            }
-        }
-    
-        ws.onmessage = async (event) => {
-            if (!isReady || !sourceBufferRef.current || !mediaSourceRef.current) return;
-
-            if (mediaSourceRef.current.readyState !== "open") {
-                console.warn("🚨 MediaSource ainda não está aberto! Ignorando buffer.");
-                return;
-            }
-        
-            const arrayBuffer = await event.data.arrayBuffer();
-        
-            if (!sourceBufferRef.current.updating) {
-                try {
-                    sourceBufferRef.current.appendBuffer(arrayBuffer);
-                    console.log("✅ Buffer adicionado com sucesso!");
-                } catch (error) {
-                    console.error("❌ Erro ao adicionar buffer:", error);
-                }
-            }
-        };
-    
-        return () => {
-            console.log("Limpando a conexão ao sair da sala.");
-            if (wsRef.current) {
-                wsRef.current.close();
-                wsRef.current = null;
-            }
-        };
-    }, [isReady, sala]);
+            callRef.current = call;
+        });
+    };
 
     return (
         <div>
-            <h1>🔊 Audio Chat Bidirecional</h1>
-            <p>Sala atual: {sala || "Nenhuma"}</p>
-
-            <button onClick={() => audioRef.current?.play()}>▶️ Forçar Reprodução</button>
-            <div>
-                <button onClick={() => setSala("sala1")}>Entrar na Sala 1</button>
-                <button onClick={() => setSala("sala2")}>Entrar na Sala 2</button>
-                <button onClick={() => setSala("sala3")}>Entrar na Sala 3</button>
-            </div>
-
-            <audio ref={audioRef} controls autoPlay />
-        </div>
+            <h1>🔊 Audio Chat com Peer.js</h1>
+            <p>Seu Peer ID: {peerId}</p>
+            <input
+                type="text"
+                placeholder="ID do parceiro"
+                value={remoteId}
+                onChange={(e) => setRemoteId(e.target.value)}
+            />
+            <button onClick={startCall}>📞 Chamar</button>
     );
-};
-
-export default App
+}
