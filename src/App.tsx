@@ -57,5 +57,6 @@ export default function AudioChat() {
                 onChange={(e) => setRemoteId(e.target.value)}
             />
             <button onClick={startCall}>📞 Chamar</button>
+        </div>
     );
 }
