@@ -26,7 +26,7 @@ const App = () => {
         }
 
         // Criar nova conexão WebSocket
-        const ws = new WebSocket(`ws://localhost:8080?sala=${sala}`);
+        const ws = new WebSocket(`${import.meta.env.VITE_WS_LINK}?sala=${sala}`);
         wsRef.current = ws;
 
         ws.onopen = () => console.log(`✅ Conectado à sala: ${sala}`);
